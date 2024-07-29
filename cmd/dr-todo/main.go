@@ -2,17 +2,14 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"os"
 
-	todo "github.com/eriktate/dr-todo"
+	"github.com/eriktate/dr-todo/cli"
 )
 
 func main() {
-	dt := todo.New("/home/soggy/.todos")
-	name, err := dt.CreateToday()
-	if err != nil {
-		log.Fatal(err)
+	if err := cli.Run(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
 	}
-
-	fmt.Printf("%s created ✅", name)
 }
