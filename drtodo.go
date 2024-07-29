@@ -5,12 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"log"
 	"os"
-	"os/exec"
-	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -100,10 +97,11 @@ func getHeaderText(input string) string {
 	return strings.Trim(input, " #\n")
 }
 
-func ParseList(date time.Time, reader io.Reader) (List, error) {
+func ParseList(name string, reader io.Reader) (List, error) {
 	r := bufio.NewReader(reader)
 
 	list := List{
+		Name:     name,
 		Sublists: make([]List, 0, 10),
 		Todos:    make([]Todo, 0, 100),
 	}
@@ -113,7 +111,9 @@ func ParseList(date time.Time, reader io.Reader) (List, error) {
 		return List{}, fmt.Errorf("reading header: %w", err)
 	}
 
-	list.Name = getHeaderText(headerLine)
+	if list.Name == "" {
+		list.Name = getHeaderText(headerLine)
+	}
 
 	for {
 		rawLine, err := r.ReadString('\n')
@@ -159,40 +159,18 @@ func ParseList(date time.Time, reader io.Reader) (List, error) {
 }
 
 func GetLatestList(path string) (List, error) {
-	entries, err := os.ReadDir(path)
+	paths, err := GetSortedListPaths(path)
 	if err != nil {
-		return List{}, fmt.Errorf("reading dir: %w", err)
+		return List{}, fmt.Errorf("getting sorted paths: %w", err)
 	}
 
-	if len(entries) == 0 {
-		return List{}, nil
-	}
-
-	latestDate := time.Time{}
-	for _, entry := range entries {
-		log.Printf("scanning dir: '%s'", entry.Name())
-		parts := strings.Split(entry.Name(), ".")
-		if len(parts) != 2 {
-			return List{}, errors.New("file names can only contain a single '.'")
-		}
-
-		date, err := ParseDate(parts[0])
-		if err != nil {
-			return List{}, fmt.Errorf("parsing date: %w", err)
-		}
-
-		if date.Compare(latestDate) > 0 {
-			latestDate = date
-		}
-	}
-
-	file, err := os.Open(filepath.Join(path, FormatDate(latestDate)+".md"))
+	file, err := os.Open(paths[0])
 	if err != nil {
 		return List{}, fmt.Errorf("opening latest file: %w", err)
 	}
 	defer file.Close()
 
-	list, err := ParseList(latestDate, file)
+	list, err := ParseList("", file)
 	if err != nil {
 		return List{}, fmt.Errorf("parsing list: %w", err)
 	}
@@ -200,16 +178,48 @@ func GetLatestList(path string) (List, error) {
 	return list, nil
 }
 
-func (dt DrTodo) CreateToday() (string, error) {
-	if err := os.Mkdir(dt.home, fs.ModeDir|0777); err != nil {
-		if !errors.Is(err, os.ErrExist) {
-			return "", fmt.Errorf("creating dr-todo home directory '%s': %w", dt.home, err)
-		}
+func GetSortedListPaths(path string) ([]string, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading dir: %w", err)
 	}
+
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	var dates []time.Time
+	for _, entry := range entries {
+		parts := strings.Split(entry.Name(), ".")
+		if len(parts) != 2 {
+			return nil, errors.New("file names can only contain a single '.'")
+		}
+
+		date, err := ParseDate(parts[0])
+		if err != nil {
+			return nil, fmt.Errorf("parsing date: %w", err)
+		}
+
+		dates = append(dates, date)
+	}
+
+	slices.SortFunc(dates, func(a time.Time, b time.Time) int {
+		return a.Compare(b) * -1
+	})
+
+	paths := make([]string, len(dates))
+	for idx, date := range dates {
+		paths[idx] = filepath.Join(path, FormatDate(date)+".md")
+	}
+
+	return paths, nil
+}
+
+func (dt DrTodo) CreateToday() (string, error) {
 
 	today := FormatDate(time.Now())
 	fname := today + ".md"
-	path := path.Join(dt.home, fname)
+	path := filepath.Join(dt.home, fname)
 
 	_, err := os.Stat(path)
 	if err == nil {
@@ -236,18 +246,5 @@ func (dt DrTodo) CreateToday() (string, error) {
 		return "", fmt.Errorf("dumping previous list: %w", err)
 	}
 
-	editor := os.Getenv("EDITOR")
-	if editor != "" {
-		log.Println("launching editor")
-		cmd := exec.Command(editor, path)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-
-		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("failed to start editor: %w", err)
-		}
-	}
-
-	return fname, nil
+	return path, nil
 }
