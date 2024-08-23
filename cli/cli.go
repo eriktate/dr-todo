@@ -16,19 +16,19 @@ import (
 var homePath string
 
 func HandleNew() *cli.Command {
-	var edit bool
+	var skipEdit bool
 
 	return &cli.Command{
 		Name:        "new",
 		Usage:       "Create a new list for today",
 		Description: "Prints an error if the list already exists. If the --edit flag is provided, attempts to open $EDITOR regardless of error response",
-		UsageText:   "dr-todo [global options] new [--edit]",
+		UsageText:   "dr-todo [global options] new [--skip-edit]",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
-				Name:        "edit",
+				Name:        "skip-edit",
 				Value:       false,
-				Usage:       "Open the TODO file with $EDITOR after creation",
-				Destination: &edit,
+				Usage:       "Skips opening the TODO file with $EDITOR after creation",
+				Destination: &skipEdit,
 			},
 		},
 		Action: func(ctx *cli.Context) error {
@@ -41,11 +41,11 @@ func HandleNew() *cli.Command {
 			fmt.Fprintf(ctx.App.Writer, "%s created ✅\n", path)
 
 			editor := os.Getenv("EDITOR")
-			if edit && editor == "" {
-				return errors.New("could not open list in $EDITOR because it isn't set")
-			}
+			if !skipEdit {
+				if editor == "" {
+					return errors.New("could not open list in $EDITOR because it isn't set")
+				}
 
-			if edit && editor != "" {
 				cmd := exec.Command(editor, path)
 				cmd.Stdout = os.Stdout
 				cmd.Stderr = os.Stderr
@@ -149,6 +149,7 @@ func Run() error {
 
 			return nil
 		},
+		DefaultCommand: "edit",
 		Commands: []*cli.Command{
 			HandleNew(),
 			HandleEdit(),

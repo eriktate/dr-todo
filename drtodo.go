@@ -14,6 +14,8 @@ import (
 
 const dateLayout = "2006-01-02"
 
+var ErrListNotFound = errors.New("list not found")
+
 func ParseDate(input string) (time.Time, error) {
 	return time.Parse(dateLayout, input)
 }
@@ -164,6 +166,10 @@ func GetLatestList(path string) (List, error) {
 		return List{}, fmt.Errorf("getting sorted paths: %w", err)
 	}
 
+	if paths == nil || len(paths) == 0 {
+		return List{}, ErrListNotFound
+	}
+
 	file, err := os.Open(paths[0])
 	if err != nil {
 		return List{}, fmt.Errorf("opening latest file: %w", err)
@@ -188,7 +194,7 @@ func GetSortedListPaths(path string) ([]string, error) {
 		return nil, nil
 	}
 
-	var dates []time.Time
+	dates := []time.Time{}
 	for _, entry := range entries {
 		parts := strings.Split(entry.Name(), ".")
 		if len(parts) != 2 {
@@ -232,7 +238,9 @@ func (dt DrTodo) CreateToday() (string, error) {
 
 	latest, err := GetLatestList(dt.home)
 	if err != nil {
-		return "", fmt.Errorf("getting previous list: %w", err)
+		if err != ErrListNotFound {
+			return "", fmt.Errorf("getting previous list: %w", err)
+		}
 	}
 
 	latest.Name = fmt.Sprintf("TODO %s", today)
