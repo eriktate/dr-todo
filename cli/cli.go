@@ -35,7 +35,7 @@ func HandleNew() *cli.Command {
 			dt := drtodo.New(homePath)
 			path, err := dt.CreateToday()
 			if err != nil {
-				return fmt.Errorf("failed to create new list")
+				return fmt.Errorf("failed to create new list: %w", err)
 			}
 
 			fmt.Fprintf(ctx.App.Writer, "%s created ✅\n", path)

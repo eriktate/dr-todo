@@ -10,6 +10,7 @@ import (
 
 	drtodo "github.com/eriktate/dr-todo"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type todoCase struct {
@@ -51,7 +52,7 @@ func Test_ParseTodo(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			td, err := drtodo.ParseTodo(c.todoStr)
+			td, err := drtodo.ParseTodo("", c.todoStr)
 			if c.expectedErr != nil {
 				assert.Error(t, err)
 				assert.Equal(t, c.expectedErr.Error(), err.Error())
@@ -67,7 +68,7 @@ func Test_ParseTodo(t *testing.T) {
 type listCase struct {
 	name        string
 	listStr     string
-	expected    drtodo.List
+	expected    string
 	expectedErr error
 }
 
@@ -75,50 +76,39 @@ func Test_ParseList(t *testing.T) {
 	cases := []listCase{
 		{
 			name: "Valid list",
-			listStr: `# Test List
+			listStr: `
+# Test List
 - [] Uncategorized
+
+## Sublist
+- [] Sublist todo
+- [x] Completed sublist todo
 
 # Must Do
 - [] Do stuff
 - [x] Do a thing
 
+### Skipping a depth
+- [] This should get reduced to a depth of 2
+
 # Stretch Goals
 - [] Do a stretch
 `,
-			expected: drtodo.List{
-				Name: "Test List",
-				Todos: []drtodo.Todo{
-					{
-						Name:      "Uncategorized",
-						Completed: false,
-					},
-				},
-				Sublists: []drtodo.List{
-					{
-						Name: "Must Do",
-						Todos: []drtodo.Todo{
-							{
-								Name:      "Do stuff",
-								Completed: false,
-							},
-							{
-								Name:      "Do a thing",
-								Completed: true,
-							},
-						},
-					},
-					{
-						Name: "Stretch Goals",
-						Todos: []drtodo.Todo{
-							{
-								Name:      "Do a stretch",
-								Completed: false,
-							},
-						},
-					},
-				},
-			},
-			expectedErr: nil,
+			expected: `# Test List
+- [ ] Uncategorized
+
+## Sublist
+- [ ] Sublist todo
+
+# Must Do
+- [ ] Do stuff
+
+## Skipping a depth
+- [ ] This should get reduced to a depth of 2
+
+# Stretch Goals
+- [ ] Do a stretch
+`,
 		},
 		{
 			name: "Invalid list",
@@ -130,14 +120,14 @@ $ Must Do
 $ Stretch Goals
 - [] Do stretch things
 			`,
-			expectedErr: errors.New("parsing todo: missing checkbox"),
+			expectedErr: errors.New("parsing list: parsing todo: missing checkbox"),
 		},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			buf := bytes.NewReader([]byte(c.listStr))
-			list, err := drtodo.ParseList(time.Now(), buf)
+			list, err := drtodo.ParseList(time.Now().String(), buf)
 			if c.expectedErr != nil {
 				assert.Error(t, err)
 				assert.Equal(t, c.expectedErr.Error(), err.Error())
@@ -145,12 +135,16 @@ $ Stretch Goals
 			}
 
 			assert.NoError(t, err)
-			for idx, expected := range c.expected.Sublists {
-				actual := list.Sublists[idx]
-				assert.Equal(t, expected.Name, actual.Name)
-				assert.ElementsMatch(t, expected.Todos, actual.Todos)
-				assert.ElementsMatch(t, expected.Sublists, actual.Sublists)
+			out := bytes.NewBuffer(nil)
+			err = list.Dump(out, true)
+			if c.expectedErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, c.expectedErr, err)
+				return
 			}
+
+			require.Equal(t, c.expected, out.String())
 		})
 	}
 }
@@ -160,25 +154,23 @@ func Test_GetLatestList(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 
-	file, err := os.Create(filepath.Join(dir, drtodo.FormatDate(now)+".md"))
+	today := drtodo.FormatDate(now)
+	file, err := os.Create(filepath.Join(dir, today+".md"))
 	assert.NoError(t, err)
-	file.WriteString("# Latest")
-	file.Close()
+	defer file.Close()
 
 	file, err = os.Create(filepath.Join(dir, drtodo.FormatDate(now.Add(-24*time.Hour))+".md"))
 	assert.NoError(t, err)
-	file.WriteString("# Second Latest")
-	file.Close()
+	defer file.Close()
 
 	file, err = os.Create(filepath.Join(dir, drtodo.FormatDate(now.Add(-48*time.Hour))+".md"))
 	assert.NoError(t, err)
-	file.WriteString("# Third Latest")
-	file.Close()
+	defer file.Close()
 
 	// RUN
 	list, err := drtodo.GetLatestList(dir)
 	assert.NoError(t, err)
 
 	// ASSERT
-	assert.Equal(t, "Latest", list.Name)
+	assert.Equal(t, today, list.Name)
 }
